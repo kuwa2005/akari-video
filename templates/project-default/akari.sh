@@ -107,14 +107,24 @@ case "$1" in
     echo "Usage: $SCRIPT_NAME [command] [options...]"
     echo ""
     echo "Commands:"
-    echo "  (no args)             Launch AI agent (opencode or Claude Code)"
+    echo "  (no args)             Launch AI agent (Claude Code → opencode fallback)"
     echo "  --preview, -pv        Start preview server"
     echo "  update                Check for updates"
-    echo "  --opencode            Launch with opencode explicitly"
+    echo ""
+    echo "Agent options (pick one):"
+    echo "  --claude, --claudecode  Launch Claude Code explicitly"
+    echo "  --opencode              Launch opencode explicitly"
+    echo "  --cursor                Launch Cursor Agent (cursor-agent / agent CLI)"
+    echo "  --codex                 Launch OpenAI Codex CLI"
+    echo ""
+    echo "Common options:"
+    echo "  -y, --yes             Auto-confirm (Claude: -y / opencode: --auto / Cursor: --force / Codex: --full-auto)"
     echo "  -h, --help, -?        Show this help"
     echo ""
     echo "Examples:"
     echo "  ./$SCRIPT_NAME                     # Launch AI agent"
+    echo "  ./$SCRIPT_NAME --cursor            # Cursor Agent"
+    echo "  ./$SCRIPT_NAME --codex             # Codex CLI"
     echo "  ./$SCRIPT_NAME --opencode          # Launch with opencode"
     echo "  ./$SCRIPT_NAME --preview           # Start preview server"
     echo "  ./$SCRIPT_NAME --preview 3000      # With port"
@@ -123,7 +133,6 @@ case "$1" in
     echo ""
     exit 0 ;;
   --preview|-pv) shift; cmd_preview "$@" ;;
-  update) exec node "$MONOREPO/packages/akari-launcher/bin/akari.mjs" "update" ;;
-  --opencode) exec node "$MONOREPO/packages/akari-launcher/bin/akari.mjs" "--opencode" ;;
+  update) shift; exec node "$MONOREPO/packages/akari-launcher/bin/akari.mjs" update "$@" ;;
   *) exec node "$MONOREPO/packages/akari-launcher/bin/akari.mjs" "$@" ;;
 esac
