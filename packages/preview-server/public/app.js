@@ -1,4 +1,22 @@
 // AKARI Video Preview — full-featured client
+const DEBUG = new URLSearchParams(location.search).get('debug') !== '0';
+window.__akariPreviewDebug = window.__akariPreviewDebug || [];
+window.__akariPreviewDebugState = { ready: false };
+
+function recordPreviewDebug(level, event, data) {
+  const entry = { level, event, data, ts: performance.now() };
+  window.__akariPreviewDebug.push(entry);
+  if (!DEBUG) return;
+  const sink = level === 'error' ? console.error : console.log;
+  sink('[preview]', event, ...(data === undefined ? [] : [data]));
+}
+
+function dbg(event, data) { recordPreviewDebug('log', event, data); }
+function dbgErr(event, data) { recordPreviewDebug('error', event, data); }
+
+function publishPreviewDebugState(patch) {
+  Object.assign(window.__akariPreviewDebugState, patch);
+}
 
 const SETTINGS_KEY = 'akari-preview-settings';
 function loadSettings() {
@@ -124,20 +142,26 @@ let ws = null;
 let wsTickInterval = null;
 
 async function init() {
+  dbg('init start', { mode: isOutputMode ? 'output' : 'preview', api });
   try {
     const [timelineRes, editRes, captionsRes] = await Promise.all([
       fetch(api.timeline),
       fetch(api.summary),
       fetch(api.captions).catch(() => new Response(null, { status: 404 })),
     ]);
+    dbg('fetch results', { timeline: timelineRes.status, edit: editRes.status, captions: captionsRes.status });
     if (!timelineRes.ok) throw new Error(`timeline: HTTP ${timelineRes.status}`);
     timelineData = await timelineRes.json();
     summary = await editRes.json();
+    dbg('timelineData', { clips: timelineData.clips?.length, fps: timelineData.fps, duration: timelineData.duration });
+    dbg('summary', { cuts: summary?.cuts?.length, output: summary?.output, audio: summary?.audio ? Object.keys(summary.audio) : null });
     if (captionsRes.ok) {
       const body = await captionsRes.json();
       captionsData = Array.isArray(body) ? body : (body?.captions ?? []);
+      dbg('captions count', captionsData.length);
     } else {
       captionsData = [];
+      dbg('captions', '404 / none');
     }
     fps = timelineData.fps || 30;
 
@@ -170,19 +194,47 @@ async function init() {
     }
 
     showMessage(null);
+    publishPreviewDebugState({
+      ready: true,
+      initError: null,
+      hasCuts: !!(summary?.cuts?.length),
+      clipCount: timelineData?.clips?.length ?? 0,
+      totalDuration,
+      videoSrc: video.src || null,
+      messageHidden: previewMessage.hidden,
+    });
   } catch (e) {
+    dbgErr('init failed', { message: e?.message || String(e), stack: e?.stack || null });
+    publishPreviewDebugState({
+      ready: true,
+      initError: e?.message || String(e),
+      hasCuts: false,
+      clipCount: 0,
+      totalDuration: 0,
+      videoSrc: null,
+      messageHidden: false,
+    });
     showMessage(e.message);
   }
+  dbg('init complete', {
+    totalDuration,
+    segments: segments.length,
+    zoom,
+    state: window.__akariPreviewDebugState,
+  });
 }
 
 function getVideoSource(cutIndex) {
   const clip = timelineData.clips.find(c => c.id === `cut-${cutIndex}`);
-  return clip ? clip.src : (timelineData.clips[0]?.src || '');
+  const src = clip ? clip.src : (timelineData.clips[0]?.src || '');
+  dbg('getVideoSource', { cutIndex, found: !!clip, src: src ? src.slice(0, 80) : '(none)' });
+  return src;
 }
 
 // --- Segments ---
 function buildSegments() {
-  if (!summary?.cuts) return;
+  if (!summary?.cuts) { dbg('buildSegments: no cuts'); return; }
+  dbg('buildSegments start', { cutCount: summary.cuts.length });
   segments = [];
   const cutEvents = [];
   for (let i = 0; i < summary.cuts.length; i++) {
@@ -215,6 +267,7 @@ function buildSegments() {
   seek.max = totalDuration;
   updateTimeLabel();
   updateSeekVisual();
+  dbg('buildSegments done', { totalDuration, segments: segments.map(s => ({ i: s.index, d: s.durationSec, gap: !!s.isGap })) });
 }
 
 // --- B-roll layers ---
@@ -720,12 +773,16 @@ function seekTo(t) {
   cutInfoPopup.hidden = true;
   const prev = outputTime;
   outputTime = Math.max(0, Math.min(t, totalDuration));
+  dbg('seekTo', { from: +prev.toFixed(3), to: +outputTime.toFixed(3), totalDuration });
   if (Math.abs(outputTime - prev) > 0.05) logReviewEvent('seek', { from: +prev.toFixed(3), to: +outputTime.toFixed(3) });
   const vt = getVideoTimeForOutput(outputTime);
   if (vt >= 0) {
     const seg = getActiveSegment(outputTime);
     if (seg && seg.index >= 0) video.src = getVideoSource(seg.index);
     video.currentTime = vt;
+    dbg('seekTo video', { vt, segIndex: seg?.index, videoSrc: video.src ? video.src.slice(0, 80) : '(none)' });
+  } else {
+    dbg('seekTo: vt < 0', { vt, outputTime });
   }
   seek.value = outputTime;
   updateTimeLabel();
