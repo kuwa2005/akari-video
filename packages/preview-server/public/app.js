@@ -1,5 +1,11 @@
 // AKARI Video Preview — full-featured client
 
+const DEBUG = true;
+function debug(...args) {
+  if (!DEBUG) return;
+  console.log(`%c[preview]`, 'color:#4da3ff;font-weight:bold', ...args);
+}
+
 const SETTINGS_KEY = 'akari-preview-settings';
 function loadSettings() {
   try { return JSON.parse(localStorage.getItem(SETTINGS_KEY)) || {}; } catch { return {}; }
@@ -133,6 +139,7 @@ async function init() {
     if (!timelineRes.ok) throw new Error(`timeline: HTTP ${timelineRes.status}`);
     timelineData = await timelineRes.json();
     summary = await editRes.json();
+    debug(`init: cuts=${summary?.cuts?.length} version=${summary?.version} fps=${timelineData?.fps}`);
     if (captionsRes.ok) {
       const body = await captionsRes.json();
       captionsData = Array.isArray(body) ? body : (body?.captions ?? []);
@@ -898,6 +905,7 @@ async function reloadSummary() {
   const res = await fetch(api.summary);
   if (!res.ok) throw new Error(`summary: HTTP ${res.status}`);
   summary = await res.json();
+  debug(`reloadSummary: cuts=${summary?.cuts?.length} version=${summary?.version}`);
   return summary;
 }
 
@@ -1902,25 +1910,30 @@ function showMessage(text) { if (text) { previewMessage.hidden = false; previewM
 let wsTickLast = 0;
 function connectWs() {
   const p = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  debug('connectWs');
   ws = new WebSocket(`${p}//${location.host}`);
+  ws.onopen = () => debug('WS connected');
+  ws.onclose = () => { debug('WS closed, reconnect in 2s'); ws = null; setTimeout(connectWs, 2000); };
+  ws.onerror = () => { debug('WS error'); if (ws) ws.close(); };
   ws.onmessage = (e) => {
     try {
       const m = JSON.parse(e.data);
-      if (m.type === 'reload') return location.reload();
+      if (m.type === 'reload') { debug('WS reload'); return location.reload(); }
       if (m.type === 'captions-reload') {
+        debug('WS captions-reload');
         fetch(api.summary).then(r => r.ok && r.json()).then(d => { if (d) summary = d; }).catch(() => {});
         return;
       }
-      if (m.type === 'seek') { pause(); seekTo(m.time); }
+      if (m.type === 'seek') { debug(`WS seek time=${m.time?.toFixed(3)}`); pause(); seekTo(m.time); }
       if (m.type === 'tick') {
+        const action = m.playing && !isPlaying ? 'play' : !m.playing && isPlaying ? 'pause' : Math.abs(outputTime - m.time) > 0.3 ? 'seek' : 'skip';
+        debug(`WS tick time=${m.time?.toFixed(3)} playing=${m.playing} → ${action}`);
         if (m.playing && !isPlaying) { outputTime = m.time; seekTo(m.time); play(); }
         else if (!m.playing && isPlaying) { pause(); }
         else if (Math.abs(outputTime - m.time) > 0.3) { seekTo(m.time); }
       }
     } catch {}
   };
-  ws.onclose = () => { ws = null; setTimeout(connectWs, 2000); };
-  ws.onerror = () => { if (ws) ws.close(); };
 }
 
 function sendWsTick() {
@@ -2147,10 +2160,11 @@ function setupAssetBrowser() {
 async function loadAssets() {
   try {
     const res = await fetch('/api/project-files');
-    if (!res.ok) return;
+    if (!res.ok) { debug(`loadAssets: HTTP ${res.status}`); return; }
     allAssets = await res.json();
+    debug(`loadAssets: ${allAssets.length} files`);
     renderAssets();
-  } catch {}
+  } catch (e) { debug('loadAssets error', e?.message); }
 }
 
 // --- Timeline Editor ---
@@ -2245,27 +2259,30 @@ async function tlSplitCut(t) {
   const cutA = { ...orig, out: +srcSplit.toFixed(3) };
   const cutB = { ...orig, in: +srcSplit.toFixed(3), at: +t.toFixed(3) };
   newEdit.cuts.splice(seg.index, 1, cutA, cutB);
+  debug(`splitCut: at=${t.toFixed(3)} srcSplit=${srcSplit.toFixed(3)} cuts ${summary.cuts.length}→${newEdit.cuts.length}`);
   try {
     const res = await fetch('/api/edit.json', {
       method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(newEdit)
     });
-    if (res.ok) { await reloadSummary(); buildSegments(); seekTo(t); showMessage('カットを分割しました (S)'); }
-    else showMessage(await editSaveErrorMessage(res));
-  } catch (err) { showMessage(err?.message || String(err)); }
+    if (res.ok) { debug('splitCut: PUT ok'); await reloadSummary(); buildSegments(); seekTo(t); showMessage('カットを分割しました (S)'); }
+    else { const err = await editSaveErrorMessage(res); debug('splitCut: PUT fail', err); showMessage(err); }
+  } catch (err) { debug('splitCut: error', err?.message); showMessage(err?.message || String(err)); }
 }
 
 async function tlDeleteCut(t) {
   const seg = getActiveSegment(t);
   if (!seg || seg.isGap || !summary?.cuts?.[seg.index]) return;
   const newEdit = JSON.parse(JSON.stringify(summary));
+  const deleted = newEdit.cuts[seg.index];
   newEdit.cuts.splice(seg.index, 1);
+  debug(`deleteCut: cut#${seg.index} cuts ${summary.cuts.length}→${newEdit.cuts.length}`);
   try {
     const res = await fetch('/api/edit.json', {
       method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(newEdit)
     });
-    if (res.ok) { await reloadSummary(); buildSegments(); seekTo(t); showMessage('カットを削除しました (Del)'); }
-    else showMessage(await editSaveErrorMessage(res));
-  } catch (err) { showMessage(err?.message || String(err)); }
+    if (res.ok) { debug('deleteCut: PUT ok'); await reloadSummary(); buildSegments(); seekTo(t); showMessage('カットを削除しました (Del)'); }
+    else { const err = await editSaveErrorMessage(res); debug('deleteCut: PUT fail', err); showMessage(err); }
+  } catch (err) { debug('deleteCut: error', err?.message); showMessage(err?.message || String(err)); }
 }
 
 function setupTimeline() {
@@ -2283,6 +2300,7 @@ function setupTimeline() {
     if (!hit || hit.mode === 'move' && hit.segIndex < 0) {
       // seek
       const t = tlTimeFromX(px);
+      debug(`timeline click seek → ${t.toFixed(3)}`);
       const w = isPlaying; if (w) pause();
       seekTo(t);
       return;
@@ -2290,6 +2308,7 @@ function setupTimeline() {
     const seg = segments[hit.segIndex];
     const cut = summary?.cuts?.[hit.cutIndex];
     if (!cut) return;
+    debug(`timeline drag start: mode=${hit.mode} cut#${hit.cutIndex}`);
     tlDrag = {
       mode: hit.mode, segIndex: hit.segIndex, cutIndex: hit.cutIndex,
       startPx: px,
@@ -2408,16 +2427,19 @@ function setupTimeline() {
         method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(newEdit)
       });
       if (res.ok) {
+        debug('timeline drag PUT ok');
         await reloadSummary();
         buildSegments();
         seekTo(outputTime);
         tlDrag.saved = true;
       } else {
-        showMessage(await editSaveErrorMessage(res));
+        const err = await editSaveErrorMessage(res);
+        debug('timeline drag PUT fail', err);
+        showMessage(err);
         buildSegments();
         renderTimeline();
       }
-    } catch (err) { showMessage(err?.message || String(err)); buildSegments(); renderTimeline(); }
+    } catch (err) { debug('timeline drag PUT error', err?.message); showMessage(err?.message || String(err)); buildSegments(); renderTimeline(); }
     tlDrag = null;
   });
 
@@ -2459,6 +2481,7 @@ function setupTimeline() {
     const assetPath = e.dataTransfer.getData('text/plain');
     if (!assetPath || !summary?.cuts) return;
     const t = tlTimeFromX(tlTimelineX(e));
+    debug(`drop asset at t=${t.toFixed(3)} path=${assetPath}`);
     const newEdit = JSON.parse(JSON.stringify(summary));
     if (!Array.isArray(newEdit.sources)) newEdit.sources = [];
     const srcId = 'src-' + Date.now();
@@ -2468,9 +2491,9 @@ function setupTimeline() {
       const res = await fetch('/api/edit.json', {
         method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(newEdit)
       });
-      if (res.ok) { await reloadSummary(); buildSegments(); seekTo(outputTime); }
-      else showMessage(await editSaveErrorMessage(res));
-    } catch (err) { showMessage(err?.message || String(err)); }
+      if (res.ok) { debug('drop PUT ok'); await reloadSummary(); buildSegments(); seekTo(outputTime); }
+      else { const err = await editSaveErrorMessage(res); debug('drop PUT fail', err); showMessage(err); }
+    } catch (err) { debug('drop PUT error', err?.message); showMessage(err?.message || String(err)); }
   });
 }
 
@@ -2603,12 +2626,14 @@ function updateTimelinePlayhead() {
 // Extend existing functions
 const origSeekTo = seekTo;
 seekTo = function(t) {
+  debug(`seekTo: ${t?.toFixed(3)}`);
   origSeekTo(t);
   updateTimelinePlayhead();
 };
 
 const origBuildSegments = buildSegments;
 buildSegments = function() {
+  debug(`buildSegments: segments=${segments.length} totalDuration=${totalDuration?.toFixed(3)}`);
   origBuildSegments();
   if (totalDuration > 0) {
     tlZoom = computeNaturalZoom();
