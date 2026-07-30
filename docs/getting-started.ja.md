@@ -184,7 +184,7 @@ AKARI Video には 4 つの入口があります。
 4. 最後に選んだ AI エージェントを起動 — 以降はセッション内で会話しながら進める
 
 **`-y` / `--yes`** を付けると、ハーネスごとの自動承認フラグが有効になります
-（Claude: `-y`、opencode: `--auto`、Cursor: `--force`、Codex: `--full-auto`）。
+（Claude: `-y`、opencode: `--auto`、Cursor: `--force`）。Codex 0.144 系には `--full-auto` 相当のフラグはありません。
 
 **Claude Code を明示的に使う場合**:
 

@@ -82,8 +82,6 @@ Whichever entrance you start from, everything converges on the same file contrac
 
 | Entrance | What it is | How to launch |
 |---|---|---|
-| Entrance | What it is | How to launch |
-|---|---|---|
 | Terminal | `packages/akari-launcher` (bin: `akari`) | `./akari.sh` (Claude Code), `./akari.sh --opencode`, `./akari.sh --cursor`, `./akari.sh --codex` |
 | Inside an opencode session | Skills auto-discovered from `.opencode/skills/` | Just say "I want to start a new video project" |
 | Inside a Claude Code session | `/akari` command + SessionStart hook in `plugin/` | Type `/akari` in a session, or just say "I want to start a new video project" |

@@ -183,7 +183,7 @@ so you can start from anywhere and continue from another later.
 4. Finally launches the selected AI agent — from there you continue conversationally inside the session
 
 Pass **`-y` / `--yes`** to auto-confirm where the harness supports it
-(Claude: `-y`, opencode: `--auto`, Cursor: `--force`, Codex: `--full-auto`).
+(Claude: `-y`, opencode: `--auto`, Cursor: `--force`). Codex 0.144 does not have a `--full-auto` equivalent.
 
 **Using Claude Code explicitly**:
 

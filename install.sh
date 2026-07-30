@@ -120,7 +120,7 @@ check_agent() {
         info "  [OK] Claude Code"
         found=true
     fi
-    if has cursor-agent || has agent; then
+    if has cursor-agent; then
         info "  [OK] Cursor Agent"
         found=true
     fi
@@ -276,7 +276,7 @@ if has claude; then
   AGENT_NAME="Claude Code"
 elif has opencode; then
   AGENT_NAME="opencode"
-elif has cursor-agent || has agent; then
+elif has cursor-agent; then
   AGENT_NAME="Cursor Agent"
 elif has codex; then
   AGENT_NAME="Codex"
